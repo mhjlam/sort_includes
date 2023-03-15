@@ -1,4 +1,5 @@
 import argparse
+from io import StringIO
 from pathlib import Path
 
 excluded_dirs = [ Path('.'), Path('.vscode'), Path('ASF'), Path('config'), Path('lib')]
@@ -70,43 +71,53 @@ def sort_include_lines(file_path, include_lines):
     if len(lib_includes) > 0:
         new_includes = lib_includes + ['']
     if len(src_includes) > 0:
-        new_includes = new_includes + src_includes + ['']
+        new_includes = new_includes + src_includes
+
+    out_buffer = StringIO()
+    last_line_is_newline = False
 
     # Open file for reading and writing
     with file_path.open('r+') as src_file:
         file_lines = src_file.readlines()
-        src_file.seek(0)
         in_if_block = False
         first_include_line = True
         first_line_after_include_block = False
+
         for line in file_lines:
             line = str(line)
             if line.startswith('#include'):
                 if first_include_line:
                     first_include_line = False
-                    # Dump all the includes here
+                    # Dump all the sorted include directives here
                     for new_include_line in new_includes:
-                        print(new_include_line)
-                        #src_file.write(new_include_line)
+                        out_buffer.write(new_include_line + '\n')
                         first_line_after_include_block = True
                 elif in_if_block: #print line as-is, because #include directives between #if/#endif directives are untouched
-                    print(line, end='')
-                    #src_file.write(line)
+                    out_buffer.write(line)
             elif not first_include_line and line.startswith('#if'):
-                print(line, end='')
+                out_buffer.write(line)
                 in_if_block = True
                 first_line_after_include_block = False
             elif not first_include_line and line.startswith('#end'):
-                print(line, end='')
+                out_buffer.write(line)
                 in_if_block = False
                 first_line_after_include_block = False
             elif first_line_after_include_block and not line.strip(): # whitespace after #include blocks
                 continue
             else:
-                print(line, end='')
-                #src_file.write(line)
+                out_buffer.write(line)
                 first_line_after_include_block = False
-        #src_file.truncate()
+        out_buffer.truncate()
+
+        # Add new line to output buffer if the file's last line is not a newline
+        if not file_lines[-1].strip():
+            last_line_is_newline = True
+    
+    with file_path.open('r+') as overwritten_file:
+        overwritten_file.seek(0)
+        end_char = '' if last_line_is_newline else '\n'
+        print(out_buffer.getvalue(), file=overwritten_file, end=end_char)
+        overwritten_file.truncate()
 
 def sort_includes(path):
     if type(path) is str:

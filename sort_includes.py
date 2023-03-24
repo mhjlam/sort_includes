@@ -1,20 +1,52 @@
+#
+# sort_includes.py
+#
+# Organizes and alphabetically sorts include directives in C source files as follows:
+#   Group of standard library includes (e.g. <stdlib.h>)
+#   Group of custom library includes (e.g. <include.h>)
+#   For source files (.c), include local associated header file (e.g. "file.h" for file.c)
+#   Group of local includes (e.g. "include.h")
+# A whiteline is added between these groups as well as at the end of the file if missing.
+# Removes duplicates from include lists
+#
+# Usage: python(.exe) sort_includes.py [-h] path
+# Example: py Tools\sort_includes Application\src
+#
+# Requires Python version 3.4 or higher
+# Incompatible with Python 2.x
+#
+# TODO: sort includes inside #if-blocks
+#
+
 from io import StringIO
 from pathlib import Path
 from argparse import ArgumentParser
 
-excluded_dirs = [ Path('.'), Path('.vscode'), Path('ASF'), Path('config'), Path('lib')]
-excluded_files = [ Path('asf.h'), Path('git_version.h'), Path('voicecard/win32/aes.c'), Path('voicecard/win32/aes.h') ]
-stdlib_includes = ['<assert.h>', '<complex.h>', '<ctype.h>', '<errno.h>', '<float.h>', '<inttypes.h>', '<limits.h>', '<locale.h>', '<math.h>', '<signal.h>', '<stdalign.h>',  '<stdarg.h>',  '<stdbool.h>', '<stddef.h>', '<stdint.h>', '<stdio.h>', '<stdlib.h>', '<string.h>', '<time.h>']
+files_refactored = 0
+excluded_dirs = [ '.git', '.vscode', 'ASF', 'config', 'lib']
+excluded_files = [ 'asf.h', 'git_version.h', 'aes.c', 'aes.h' ]
+stdlib_includes = [ '<assert.h>', '<complex.h>', '<ctype.h>', '<errno.h>', '<float.h>', '<inttypes.h>', 
+                    '<limits.h>', '<locale.h>', '<math.h>', '<signal.h>', '<stdarg.h>', '<stdbool.h>', 
+                    '<stddef.h>', '<stdint.h>', '<stdio.h>', '<stdlib.h>', '<string.h>', '<time.h>' ]
 
-# TODO: sort includes inside #if-blocks
+def dir_excluded(path):
+    for part in path.parts:
+        if part in excluded_dirs:
+            return True
+    return False
+
+def file_excluded(path):
+    if (path.suffix == '.c' or path.suffix == '.h'):
+        return path.name in excluded_files
+    return False
 
 # Recursively get all source files (and headers) inside of the specified folder
 source_file_paths = []
 def collect_source_files(folder_path):
     for path in Path.iterdir(folder_path):
-        if path.is_file() and path not in excluded_files and (path.suffix == '.c' or path.suffix == '.h'):
+        if path.is_file() and not file_excluded(path):
             source_file_paths.append(path.absolute())
-        if path.is_dir() and str(path) not in excluded_dirs:
+        if path.is_dir() and not dir_excluded(path):
             collect_source_files(path)
     return source_file_paths
 
@@ -42,18 +74,24 @@ def sort_lib_includes(file_path, lib_includes):
         else:
             lib_includes_other.append(directive)
     
-    if len(lib_includes_other) > 0:
-        lib_includes_other = [''] + lib_includes_other
+    # Add whiteline between stdlib and other library include directives
+    if len(lib_includes_stdlib) > 0 and len(lib_includes_other) > 0:
+        lib_includes_stdlib.append('')
+
     return lib_includes_stdlib + lib_includes_other
 
 def sort_src_includes(file_path, src_includes):
+    # Place source header at top
     if file_path.suffix == '.c':
         for directive in src_includes:
             if file_path.stem in directive: # associated header file
                 src_includes.remove(directive)
+                directive = '#include "{}.h"'.format(file_path.stem)  # only use basename
                 if len(src_includes) > 0:
+                     # put directive first and return rest of includes sorted
                     return [directive, ''] + sorted(src_includes)
-                return [directive] # put directive first and return rest of includes sorted
+                else:
+                    return [directive]
     return sorted(src_includes)
             
 def sort_include_lines(file_path, include_lines):
@@ -122,12 +160,13 @@ def sort_include_lines(file_path, include_lines):
         overwritten_file.truncate()
 
 def sort_includes(path):
-    if type(path) is str:
-        path = Path(path)
     if path.is_file():
         includes = collect_include_lines(path)
         if len(includes) > 0:
+            print(path)
             sort_include_lines(path, includes)
+            global files_refactored
+            files_refactored += 1
     elif path.is_dir():
         for file in collect_source_files(path):
             sort_includes(file)
@@ -138,7 +177,12 @@ def main():
     args = parser.parse_args()
 
     if len(args.path) > 0:
-        sort_includes(args.path)
+        p = Path(args.path)
+        if not p.exists():
+            raise FileNotFoundError(p)
+        else:
+            sort_includes(p)
+            print('Refactored', files_refactored, 'files.')
 
 if __name__ == "__main__":
     main()
